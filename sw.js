@@ -1,5 +1,5 @@
 /* Service worker — cache l'app pour un usage hors-ligne à la salle */
-const CACHE = 'carnet-muscu-v5';
+const CACHE = 'carnet-muscu-v6';
 const ASSETS = [
   './',
   './index.html',

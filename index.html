@@ -278,20 +278,19 @@ PROGRAM[4]=PROGRAM[1];  // jeudi = lundi
 PROGRAM[5]=PROGRAM[2];  // vendredi = mardi
 const DAYNAMES=['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
 
-/* résout chaque exo du programme vers un id réel (crée l'exo s'il manque) */
-(function resolveProgram(){
+/* relie chaque exo du programme à un id réel (crée l'exo s'il manque) */
+function resolveProgram(){
   let added=false;
-  const seen=new Set();
   Object.keys(PROGRAM).forEach(k=>{
     PROGRAM[k].items.forEach(it=>{
-      if(it.exerciseId) return;            // objet partagé déjà résolu (lun/jeu)
       let e=exercises.find(x=>x.name.toLowerCase()===it.name.toLowerCase());
       if(!e){ e={id:uid(),name:it.name,group:it.group}; exercises.push(e); added=true; }
-      it.exerciseId=e.id;
+      it.exerciseId=e.id;                  // (ré)association par nom — robuste après import
     });
   });
   if(added) DB.save('exercises',exercises);
-})();
+}
+resolveProgram();
 
 /* ============================ HELPERS ============================ */
 const $ = s => document.querySelector(s);
@@ -314,6 +313,47 @@ function toast(msg){
 }
 function persist(){ DB.save('exercises',exercises); DB.save('sessions',sessions); DB.save('draft',draft);
   DB.save('nutriLog',nutriLog); DB.save('nutriGoals',nutriGoals); DB.save('meals',meals); }
+
+/* ---------- SAUVEGARDE (export / import) ---------- */
+function exportData(){
+  const data={ app:'carnet-muscu', version:6, exportedAt:new Date().toISOString(),
+    exercises, sessions, nutriLog, nutriGoals, meals };
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url; a.download=`carnet-muscu-sauvegarde-${todayKey()}.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1500);
+  toast('Sauvegarde exportée 💾');
+}
+function importData(){
+  const inp=document.createElement('input');
+  inp.type='file'; inp.accept='application/json,.json';
+  inp.onchange=()=>{
+    const file=inp.files&&inp.files[0]; if(!file) return;
+    const reader=new FileReader();
+    reader.onload=()=>{
+      try{
+        const d=JSON.parse(reader.result);
+        if(!d || (d.app && d.app!=='carnet-muscu') || (!Array.isArray(d.sessions)&&!Array.isArray(d.exercises)&&!d.nutriLog))
+          throw new Error('format');
+        if(!confirm("Importer cette sauvegarde ? Elle REMPLACERA toutes les données actuelles de l'app.")) return;
+        if(Array.isArray(d.exercises)) exercises=d.exercises;
+        if(Array.isArray(d.sessions))  sessions=d.sessions;
+        if(d.nutriLog && typeof d.nutriLog==='object') nutriLog=d.nutriLog;
+        if(d.nutriGoals && typeof d.nutriGoals==='object') nutriGoals=d.nutriGoals;
+        if(Array.isArray(d.meals)) meals=d.meals;
+        draft=null;
+        resolveProgram();          // relie le programme aux exercices importés
+        persist();
+        toast('Sauvegarde importée ✓');
+        render();
+      }catch(e){ alert("Fichier invalide : ce n'est pas une sauvegarde Carnet de Muscu."); }
+    };
+    reader.readAsText(file);
+  };
+  inp.click();
+}
 
 /* dernière performance enregistrée pour un exercice (dans les séances terminées) */
 function lastPerf(exoId){
@@ -567,9 +607,15 @@ function renderHistory(){
   $('#hSub').textContent = sessions.length? `${sessions.length} séance${sessions.length>1?'s':''}` : '';
   $('#hAction').style.display='none';
   const el=$('#tab-history');
+  const backup=`<div class="sect">Sauvegarde des données</div>
+    <div class="card">
+      <div class="muted small" style="margin-bottom:12px">Tout est stocké sur cet appareil. Exporte une sauvegarde de temps en temps (séances + nutrition + objectifs) pour ne rien perdre — et réimporte-la sur un nouveau téléphone.</div>
+      <button class="btn ghost" onclick="exportData()">💾 Exporter mes données</button>
+      <button class="btn ghost" style="margin-top:10px" onclick="importData()">📂 Importer une sauvegarde</button>
+    </div>`;
   if(!sessions.length){
-    el.innerHTML=`<div class="empty"><div class="big">📅</div>
-      <p>Aucune séance enregistrée pour l'instant. Tes séances terminées apparaîtront ici, classées par date.</p></div>`;
+    el.innerHTML=`<div class="empty" style="padding:34px 20px"><div class="big">📅</div>
+      <p>Aucune séance enregistrée pour l'instant. Tes séances terminées apparaîtront ici, classées par date.</p></div>`+backup;
     return;
   }
   let html='';
@@ -589,7 +635,7 @@ function renderHistory(){
     });
     html+=`</div>`;
   });
-  el.innerHTML=html;
+  el.innerHTML=html+backup;
 }
 function delSession(id){
   if(confirm('Supprimer cette séance ?')){
