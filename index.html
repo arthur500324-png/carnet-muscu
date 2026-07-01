@@ -1040,23 +1040,47 @@ function loadScanLib(){
 }
 async function openScanner(){
   openModal(`<div class="grab"></div><h2>Scanner un code-barres</h2>
-    <p class="muted small" style="margin:0 0 12px">Vise le code-barres du produit.</p>
+    <p class="muted small" style="margin:0 0 12px">Vise le code-barres du produit. Approche-toi bien : il doit remplir le cadre.</p>
     <div id="reader"></div>
     <div id="scanMsg" class="muted small" style="margin-top:12px">Démarrage de la caméra…</div>
-    <button class="btn ghost" style="margin-top:12px" onclick="closeModal()">Annuler</button>`);
+    <button class="btn ghost" style="margin-top:12px" onclick="openManualBarcode()">⌨️ Saisir le code manuellement</button>
+    <button class="btn ghost" style="margin-top:8px" onclick="closeModal()">Annuler</button>`);
   try{
     await loadScanLib();
     if(!$('#reader')) return; // modal fermé entre-temps
     const F=Html5QrcodeSupportedFormats;
-    const scanner=new Html5Qrcode('reader',{formatsToSupport:[F.EAN_13,F.EAN_8,F.UPC_A,F.UPC_E]});
+    const scanner=new Html5Qrcode('reader',{
+      formatsToSupport:[F.EAN_13,F.EAN_8,F.UPC_A,F.UPC_E],
+      experimentalFeatures:{useBarCodeDetectorIfSupported:true},
+      verbose:false
+    });
     window.__scanner=scanner;
-    await scanner.start({facingMode:'environment'},{fps:10,qrbox:{width:260,height:150}},
+    // Zone de scan large (code-barres 1D = format large) et adaptée à la largeur de l'écran.
+    const qrbox=(vw,vh)=>{ const w=Math.floor(Math.min(vw,vh)*0.92); return {width:w,height:Math.floor(w*0.55)}; };
+    // Haute résolution demandée : indispensable sur iPhone pour que le code-barres soit assez net à décoder.
+    await scanner.start(
+      {facingMode:'environment', width:{ideal:1920}, height:{ideal:1080}},
+      {fps:15, qrbox, aspectRatio:1.7778, disableFlip:true},
       txt=>onScanned(txt), ()=>{});
-    const m=$('#scanMsg'); if(m) m.textContent='Caméra active — vise le code-barres.';
+    const m=$('#scanMsg'); if(m) m.textContent='Caméra active — vise le code-barres (bien à plat, net).';
   }catch(e){
     const m=$('#scanMsg');
-    if(m) m.innerHTML=`⚠️ Caméra indisponible.<br>Sur iPhone, le scan exige que l'app soit ouverte en <b>HTTPS</b> (app hébergée) avec l'autorisation caméra. En attendant, utilise <b>Rechercher</b>.`;
+    if(m) m.innerHTML=`⚠️ Caméra indisponible.<br>Sur iPhone, le scan exige que l'app soit ouverte en <b>HTTPS</b> (app hébergée) avec l'autorisation caméra. Tu peux <b>saisir le code manuellement</b> ci-dessus, ou utiliser <b>Rechercher</b>.`;
   }
+}
+function openManualBarcode(){
+  stopScanner();
+  openModal(`<div class="grab"></div><h2>Code-barres manuel</h2>
+    <p class="muted small" style="margin:0 0 12px">Tape les chiffres sous le code-barres du produit.</p>
+    <input class="ipt" id="mBarcode" type="tel" inputmode="numeric" placeholder="Ex : 3017620422003" onkeydown="if(event.key==='Enter')submitManualBarcode()">
+    <button class="btn" onclick="submitManualBarcode()">Chercher le produit</button>
+    <button class="btn ghost" style="margin-top:10px" onclick="openScanner()">↩︎ Revenir au scan</button>`);
+  setTimeout(()=>$('#mBarcode')&&$('#mBarcode').focus(),300);
+}
+async function submitManualBarcode(){
+  const code=($('#mBarcode').value||'').replace(/\D/g,'').trim();
+  if(!code){ toast('Entre un code-barres'); return; }
+  await onScanned(code);
 }
 async function onScanned(code){
   if(navigator.vibrate) navigator.vibrate(20);
